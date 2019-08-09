@@ -78,24 +78,25 @@ void SpatialTree<D, EdgeCallback>::generateEdges(int seed) {
 
 template<unsigned int D, typename EdgeCallback>
 void SpatialTree<D, EdgeCallback>::visitCellPair(unsigned int cellA, unsigned int cellB, unsigned int level) {
+
     if(!CoordinateHelper::touching(cellA, cellB, level)) { // not touching
         // sample all type 2 occurrences with this cell pair
         #ifdef NDEBUG
 		if (m_alpha == std::numeric_limits<double>::infinity()) return; // dont trust compilter optimization
         #endif // NDEBUG
         for(auto l=level; l<m_levels; ++l)
-            for(auto& [i,j] : m_layer_pairs[l])
+            for(auto& [i,j] : m_layer_pairs[l]) {
                 sampleTypeII(cellA, cellB, level, i, j);
+                sampleTypeII(cellB, cellA, level, i, j);
+            }
         return;
     }
 
     // sample all type 1 occurrences with this cell pair
     for(auto& [i,j] : m_layer_pairs[level]) {
-        if(cellA != cellB || i <= j)
-            sampleTypeI(cellA, cellB, level, i, j);
-        // for cell A we would get for ij bzw ji
-        // CiA VjA and ViA CjA
-        // CjA ViA and VjA CiA
+        sampleTypeI(cellA, cellB, level, i, j);
+        if(cellA != cellB)
+            sampleTypeI(cellB, cellA, level, i, j);
     }
 
     // break if last level reached
@@ -119,68 +120,56 @@ void SpatialTree<D, EdgeCallback>::sampleTypeI(
 {
     assert(partitioningBaseLevel(i, j) == level);
 
-    // sample CiAxVjB and ViAxCjB
-    for(auto CtoV : {true, false}) { // sample clauses in cell A to variables in cell B or vice versa
+    // in this method we sample CiA x VjB
+    auto [beginA, endA] = m_weight_layersC[i].cellIterators(cellA, level); // clauses in cell A and layer i
+    auto [beginB, endB] = m_weight_layersV[j].cellIterators(cellB, level); // variables in cell B and layer j
 
-        auto& leftLayer = (CtoV ? m_weight_layersC : m_weight_layersV)[i];
-        auto& rightLayer = (!CtoV ? m_weight_layersC : m_weight_layersV)[j];
-
-        auto [beginA, endA] = leftLayer.cellIterators(cellA, level); // cells in cell A and leftLayer
-        auto [beginB, endB] = rightLayer.cellIterators(cellB, level); // cells in cell B and rightLayer
-
-        if (beginA == endA || beginB == endB)
-            continue;
-
+    if (beginA == endA || beginB == endB)
+        return;
 
 #ifndef NDEBUG
-        {
-            const auto sizeV_i_A = std::distance(beginA, endA);
-            const auto sizeV_j_B = std::distance(beginB, endB);
-            m_type1_checks += sizeV_i_A * sizeV_j_B;
-        }
+    {
+        const auto sizeV_i_A = std::distance(beginA, endA);
+        const auto sizeV_j_B = std::distance(beginB, endB);
+        m_type1_checks += sizeV_i_A * sizeV_j_B;
+    }
 #endif // NDEBUG
 
-        std::uniform_real_distribution<> dist;
-        const auto inThresholdMode = m_alpha == std::numeric_limits<double>::infinity();
+    std::uniform_real_distribution<> dist;
+    const auto inThresholdMode = m_alpha == std::numeric_limits<double>::infinity();
 
-        for(auto pointerA = beginA; pointerA != endA; ++pointerA) {
-            for (auto pointerB = beginB; pointerB != endB; ++pointerB) {
+    for(auto pointerA = beginA; pointerA != endA; ++pointerA) {
+        for (auto pointerB = beginB; pointerB != endB; ++pointerB) {
 
-                const auto& nodeInA = *pointerA;
-                const auto& nodeInB = *pointerB;
+            const Node<D>& clause = *pointerA;
+            const auto& variable = *pointerB;
 
-                // pointer magic gives same results
-                assert(nodeInA.index == leftLayer.kthPoint(cellA, level, std::distance(beginA, pointerA)).index);
-                assert(nodeInB.index == rightLayer.kthPoint(cellB, level, std::distance(beginB, pointerB)).index);
+            // pointer magic gives same results
+            assert(clause.index == m_weight_layersC[i].kthPoint(cellA, level, std::distance(beginA, pointerA)).index);
+            assert(variable.index == m_weight_layersV[j].kthPoint(cellB, level, std::distance(beginB, pointerB)).index);
 
-                // points are in correct cells
-                assert(cellA - CoordinateHelper::firstCellOfLevel(level) == CoordinateHelper::cellForPoint(nodeInA.coord, level));
-                assert(cellB - CoordinateHelper::firstCellOfLevel(level) == CoordinateHelper::cellForPoint(nodeInB.coord, level));
+            // points are in correct cells
+            assert(cellA - CoordinateHelper::firstCellOfLevel(level) == CoordinateHelper::cellForPoint(clause.coord, level));
+            assert(cellB - CoordinateHelper::firstCellOfLevel(level) == CoordinateHelper::cellForPoint(variable.coord, level));
 
-                // points are in correct weight layer
-                assert(i == static_cast<unsigned int>(std::log2(nodeInA.weight/m_w0)));
-                assert(j == static_cast<unsigned int>(std::log2(nodeInB.weight/m_w0)));
+            // points are in correct weight layer
+            // TODO change later
+            assert(i == static_cast<unsigned int>(std::log2(clause.weight/m_w0)));
+            assert(j == static_cast<unsigned int>(std::log2(variable.weight/m_w0)));
 
-                // assert(nodeInA.index != nodeInB.index); // can be equal because one is clause other is var
-                const auto distance = nodeInA.distance(nodeInB);
-                const auto w_term = nodeInA.weight*nodeInB.weight/m_W;
-                const auto d_term = pow_to_the<D>(distance);
+            const auto distance = clause.distance(variable);
+            const auto w_term = clause.weight*variable.weight/m_W;
+            const auto d_term = pow_to_the<D>(distance);
 
-                auto clauseID = nodeInA.index;
-                auto varID = nodeInB.index;
-                if(!CtoV) std::swap(clauseID, varID);
-                if(inThresholdMode) {
-                    if(d_term < w_term)
-                        m_EdgeCallback(clauseID, varID);
-                } else {
-                    auto edge_prob = std::pow(w_term/d_term, m_alpha); // we don't need min with 1.0 here
-                    if(dist(m_gen) < edge_prob)
-                        m_EdgeCallback(clauseID, varID);
-                }
+            if(inThresholdMode) {
+                if(d_term < w_term)
+                    m_EdgeCallback(clause.index, variable.index);
+            } else {
+                auto edge_prob = std::pow(w_term/d_term, m_alpha); // we don't need min with 1.0 here
+                if(dist(m_gen) < edge_prob)
+                    m_EdgeCallback(clause.index, variable.index);
             }
         }
-        if(cellA == cellB && i == j)
-            return; // in this case CiAxVjB is same as ViAxCjB
     }
 }
 
@@ -192,66 +181,56 @@ void SpatialTree<D, EdgeCallback>::sampleTypeII(
 {
     assert(partitioningBaseLevel(i, j) >= level);
 
-    // sample CiAxVjB and ViAxCjB
-    for(auto CtoV : {true, false}) { // sample clauses in cell A to variables in cell B or vice versa
+    // sample CiA x VjB
+    auto [beginA, endA] = m_weight_layersC[i].cellIterators(cellA, level); // clauses in cell A and layer i
+    auto [beginB, endB] = m_weight_layersV[j].cellIterators(cellB, level); // variables in cell B and layer j
 
-        auto& leftLayer = (CtoV ? m_weight_layersC : m_weight_layersV)[i];
-        auto& rightLayer = (!CtoV ? m_weight_layersC : m_weight_layersV)[j];
+    if (beginA == endA || beginB == endB)
+        return;
 
-        auto [beginA, endA] = leftLayer.cellIterators(cellA, level); // cells in cell A and leftLayer
-        auto [beginB, endB] = rightLayer.cellIterators(cellB, level); // cells in cell B and rightLayer
-
-        if (beginA == endA || beginB == endB)
-            continue;
-
-        const auto sizeV_i_A = std::distance(beginA, endA);
-        const auto sizeV_j_B = std::distance(beginB, endB);
+    const auto sizeV_i_A = std::distance(beginA, endA);
+    const auto sizeV_j_B = std::distance(beginB, endB);
 #ifndef NDEBUG
-        m_type2_checks += sizeV_i_A * sizeV_j_B;
+    m_type2_checks += sizeV_i_A * sizeV_j_B;
 #endif // NDEBUG
 
-        // get upper bound for probability
-        const auto w_upper_bound = m_w0*(1<<(i+1)) * m_w0*(1<<(j+1)) / m_W;
-        const auto cell_distance = CoordinateHelper::dist(cellA, cellB, level);
-        const auto dist_lower_bound = pow_to_the<D>(cell_distance);
-        const auto max_connection_prob = std::min(std::pow(w_upper_bound/dist_lower_bound, m_alpha), 1.0);
-        assert(dist_lower_bound > w_upper_bound); // in threshold model we would not sample anything
-        const auto num_pairs = sizeV_i_A * sizeV_j_B;
-        const auto expected_samples = num_pairs * max_connection_prob;
+    // get upper bound for probability
+    const auto w_upper_bound = m_w0*(1<<(i+1)) * m_w0*(1<<(j+1)) / m_W;
+    const auto cell_distance = CoordinateHelper::dist(cellA, cellB, level);
+    const auto dist_lower_bound = pow_to_the<D>(cell_distance);
+    const auto max_connection_prob = std::min(std::pow(w_upper_bound/dist_lower_bound, m_alpha), 1.0);
+    assert(dist_lower_bound > w_upper_bound); // in threshold model we would not sample anything
+    const auto num_pairs = sizeV_i_A * sizeV_j_B;
+    const auto expected_samples = num_pairs * max_connection_prob;
 
-        if(expected_samples < 1e-6)
-            continue;
+    if(expected_samples < 1e-6)
+        return;
 
-        // init geometric distribution
-        auto geo = std::geometric_distribution<unsigned long long>(max_connection_prob);
-        auto dist = std::uniform_real_distribution<>(0, max_connection_prob);
+    // init geometric distribution
+    auto geo = std::geometric_distribution<unsigned long long>(max_connection_prob);
+    auto dist = std::uniform_real_distribution<>(0, max_connection_prob);
 
-        for (auto r = geo(m_gen); r < num_pairs; r += 1 + geo(m_gen)) {
-            // determine the r-th pair
-            const Node<D>& nodeInA = beginA[r%sizeV_i_A];
-            const Node<D>& nodeInB = beginB[r/sizeV_i_A];
+    for (auto r = geo(m_gen); r < num_pairs; r += 1 + geo(m_gen)) {
+        // determine the r-th pair
+        const Node<D>& clause = beginA[r%sizeV_i_A];
+        const Node<D>& variable = beginB[r/sizeV_i_A];
 
-            // points are in correct weight layer
-            assert(i == static_cast<unsigned int>(std::log2(nodeInA.weight/m_w0)));
-            assert(j == static_cast<unsigned int>(std::log2(nodeInB.weight/m_w0)));
+        // points are in correct weight layer
+        assert(i == static_cast<unsigned int>(std::log2(clause.weight/m_w0)));
+        assert(j == static_cast<unsigned int>(std::log2(variable.weight/m_w0)));
 
-            const auto rnd = dist(m_gen);
+        const auto rnd = dist(m_gen);
 
-            // get actual connection probability
-            const auto distance = nodeInA.distance(nodeInB);
-            const auto w_term = nodeInA.weight*nodeInB.weight/m_W;
-            const auto d_term = pow_to_the<D>(distance);
-            const auto connection_prob = std::pow(w_term/d_term, m_alpha); // we don't need min with 1.0 here
-            assert(w_term < w_upper_bound);
-            assert(d_term >= dist_lower_bound);
+        // get actual connection probability
+        const auto distance = clause.distance(variable);
+        const auto w_term = clause.weight*variable.weight/m_W;
+        const auto d_term = pow_to_the<D>(distance);
+        const auto connection_prob = std::pow(w_term/d_term, m_alpha); // we don't need min with 1.0 here
+        assert(w_term < w_upper_bound);
+        assert(d_term >= dist_lower_bound);
 
-            auto clauseID = nodeInA.index;
-            auto varID = nodeInB.index;
-            if(!CtoV) std::swap(clauseID, varID);
-
-            if(rnd < connection_prob) {
-                m_EdgeCallback(clauseID, varID);
-            }
+        if(rnd < connection_prob) {
+            m_EdgeCallback(clause.index, variable.index);
         }
     }
 }
