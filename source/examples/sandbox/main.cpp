@@ -28,8 +28,8 @@ int main(int argc, char* argv[]) {
     auto n = 30;
     auto m = 50;
     const auto d = 2;
-    // auto alpha = std::numeric_limits<double>::infinity();
-    auto alpha = 0.8;
+    //auto alpha = std::numeric_limits<double>::infinity();
+    auto alpha = 7.0;
 
     // seeds
     auto seed = 1337;
@@ -75,6 +75,7 @@ int main(int argc, char* argv[]) {
         for (int i = 0; i < m; ++i) {
             auto& clause = sat[i];
             auto& clausePos = pc[i];
+            assert(clause.size() >= clauseLengths[i]);
             // can be made linear with n-th element, and partition
             sort(clause.begin(), clause.end(), [&clausePos, &pv,&wv](int var1, int var2) {
                 auto var1Goodness = wv[var1]/distance(clausePos, pv[var1]);

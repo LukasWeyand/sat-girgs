@@ -219,6 +219,10 @@ void SpatialTree<D, EdgeCallback>::sampleTypeII(
         assert(i == static_cast<unsigned int>(std::log2(clause.weight/m_w0)));
         assert(j == static_cast<unsigned int>(std::log2(variable.weight/m_w0)));
 
+        // points are in correct cells
+        assert(cellA - CoordinateHelper::firstCellOfLevel(level) == CoordinateHelper::cellForPoint(clause.coord, level));
+        assert(cellB - CoordinateHelper::firstCellOfLevel(level) == CoordinateHelper::cellForPoint(variable.coord, level));
+
         const auto rnd = dist(m_gen);
 
         // get actual connection probability

@@ -3,11 +3,11 @@
 
 #include <gmock/gmock.h>
 
-#include <girgs/SpatialTreeCoordinateHelper.h>
+#include <satgirgs/SpatialTreeCoordinateHelper.h>
 
 
 using namespace std;
-using namespace girgs;
+using namespace satgirgs;
 
 
 class SpatialTreeCoordinateHelper_test: public testing::Test {};

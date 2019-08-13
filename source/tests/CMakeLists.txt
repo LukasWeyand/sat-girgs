@@ -3,8 +3,6 @@
 # Configure test project and environment
 #
 
-return()
-
 
 
 # Prevent GoogleTest from overriding our compiler/linker options
@@ -15,10 +13,7 @@ set(gtest_build_samples     OFF CACHE BOOL "")
 set(gtest_build_tests       OFF CACHE BOOL "")
 set(gmock_build_tests       OFF CACHE BOOL "")
 
-add_subdirectory(
-    ${googletest_SOURCE_DIR}
-    ${googletest_BINARY_DIR}
-)
+add_subdirectory(googletest)
 
 # configure targets
 foreach(target gtest gtest_main gmock gmock_main)
@@ -60,5 +55,5 @@ set_target_properties(test PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD 1)
 # Tests
 #
 
-add_test_without_ctest(girgs-test)
-add_test_without_ctest(hypergirgs-test)
+add_test_without_ctest(satgirgs-test)
+

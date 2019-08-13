@@ -1,12 +1,8 @@
+
 #include <fstream>
 #include <iostream>
 #include <iomanip>
 #include <random>
-#include <functional>
-#include <mutex>
-#include <ios>
-
-#include <omp.h>
 
 #include <satgirgs/Generator.h>
 #include <satgirgs/SpatialTree.h>
@@ -30,6 +26,31 @@ std::vector<std::vector<double>> generatePositions(int n, int dimension, int pos
         for (int d=0; d<dimension; ++d)
             result[i][d] = dist(gen);
     return result;
+}
+
+std::vector<std::vector<int>> generateClauses(
+        const std::vector<double> &clauseWeights, const std::vector<std::vector<double>> &clausePositions,
+        const std::vector<double> &variableWeights, const std::vector<std::vector<double>> &variablePositions,
+        double alpha, int seed) {
+    auto n = variableWeights.size();
+    auto m = clauseWeights.size();
+    auto d = clausePositions.front().size();
+    auto clauses = std::vector<std::vector<int>>(m);
+    auto addVarToClause = [&clauses](int c, int v) {
+        clauses[c].push_back(v);
+    };
+
+    assert(variablePositions.size()==n);
+    assert(clausePositions.size()==m);
+    assert(variablePositions.front().size() == d);
+
+    if(d==1) makeSpatialTree<1>(clauseWeights, clausePositions, variableWeights, variablePositions, alpha, addVarToClause).generateEdges(seed);
+    if(d==2) makeSpatialTree<2>(clauseWeights, clausePositions, variableWeights, variablePositions, alpha, addVarToClause).generateEdges(seed);
+    if(d==3) makeSpatialTree<3>(clauseWeights, clausePositions, variableWeights, variablePositions, alpha, addVarToClause).generateEdges(seed);
+    if(d==4) makeSpatialTree<4>(clauseWeights, clausePositions, variableWeights, variablePositions, alpha, addVarToClause).generateEdges(seed);
+    if(d==5) makeSpatialTree<5>(clauseWeights, clausePositions, variableWeights, variablePositions, alpha, addVarToClause).generateEdges(seed);
+
+    return clauses;
 }
 
 void saveDot(

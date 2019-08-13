@@ -10,7 +10,7 @@ std::array<uint32_t, D> extract(uint32_t cell) {
     auto bit = 0u;
     for(auto l = 0u; (l+1)*D <= 32; ++l) {
         for(auto d = 0u; d<D; ++d) {
-            result[d] |= (cell >> bit++) << l;
+            result[d] |= ((cell >> bit++) & 1u) << l;
         }
     }
     return result;
@@ -26,7 +26,7 @@ uint32_t deposit(std::array<uint32_t, D> coords) {
     // thus we encode the same number of bits for each coordinate
     for(auto l = 0u; (l+1)*D <= 32; l++) {
         for(auto d = 0u; d < D; d++) {
-            result |= ((coords[d] >> l) & 1) << bit++;
+            result |= ((coords[d] >> l) & 1u) << bit++;
         }
     }
     return result;
@@ -45,9 +45,13 @@ unsigned int SpatialTreeCoordinateHelper<D>::cellOfLevel(unsigned cell) noexcept
         return x;
     };
 
-    auto mask = 0u;
-    for(auto bit = 0u; bit < 32; bit += D)
-        mask |= 1u << bit;
+    // cool c++17 constexpr lambdas
+    constexpr auto mask = [](){
+        auto res = 0u;
+        for(auto bit = 0u; bit < 32; bit += D)
+            res |= 1u << bit;
+        return res;
+    }();
 
     auto firstCellInLayer = mask & assertLower(cell);
 
