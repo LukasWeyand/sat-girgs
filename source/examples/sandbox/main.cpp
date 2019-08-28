@@ -5,143 +5,83 @@
 
 #include <satgirgs/SpatialTree.h>
 #include <satgirgs/Generator.h>
+#include <fstream>
 
 using namespace std;
 using namespace satgirgs;
-
-double distance(const vector<double>& a, const vector<double>& b) {
-    auto D = a.size();
-    auto result = 0.0;
-    for(auto d=0u; d<D; ++d){
-        auto dist = std::abs(a[d] - b[d]);
-        dist = std::min(dist, 1.0-dist);
-        result = std::max(result, dist);
-    }
-    return result;
-}
 
 
 
 int main(int argc, char* argv[]) {
 
     // params
-    auto n = 30;
-    auto m = 50;
+    auto n = 30000;
+    auto m = 130000;
     const auto d = 2;
-    //auto alpha = std::numeric_limits<double>::infinity();
-    auto alpha = 7.0;
+    // auto alpha = std::numeric_limits<double>::infinity();
+    auto alpha = 1.3;
 
-    // seeds
-    auto seed = 1337;
+    auto edgeSeed = 1338;
     auto posSeedC = 378;
-    auto posSeedV = seed*seed+4;
+    auto posSeedV = 2049;
+    auto weiSeedV = 378;
 
-    auto clauseLengths = vector<int>(m,3);
-    auto pc = generatePositions(m, d, posSeedC);
-    auto wc = vector<double>(m);
-    for (int i = 0; i < m; ++i)
-        wc[i] = clauseLengths[i];
+    auto claLengths = vector<int>(m,3);
+    auto varWeights = generateWeights(n, 3.0, weiSeedV);
+    auto claPos = generatePositions(m, d, posSeedC);
+    auto varPos = generatePositions(n, d, posSeedV);
 
-    auto pv = generatePositions(n, d, posSeedV);
-    auto wv = generateWeights(n, 2.5, seed);
-    auto W = accumulate(wv.begin(), wv.end(), 0.0);
+    // sample stuff
+    auto sat = generateCVIG(
+            claLengths, claPos, // clauses
+            varWeights, varPos, // variables
+            alpha, edgeSeed); // sampling parameter
 
-    auto sat = vector<vector<int>>(m);
-
-    // increase clause weights until each clause has > desired length
-    auto scaled = 1.0;
-    while(true) {
-
-        for(auto& clause : sat)
-            clause.clear();
-        auto addVar = [&sat](int c, int v) { sat[c].push_back(v); };
-        makeSpatialTree<d>(wc, pc, wv, pv, alpha, addVar).generateEdges(seed);
-
-        auto works = true;
-        for (int i = 0; i < m; ++i)
-            works = works && sat[i].size() >= clauseLengths[i];
-        if(works) break;
-
-        scaled *= 2;
-        auto scaling = 2.0;
-        if(alpha == numeric_limits<double>::infinity())
-            scaling = pow(2.0, 1.0/alpha);
-        for(auto& w : wc)
-            w *= scaling;
-    }
-
-    // clean formulas
-    if(alpha==numeric_limits<double>::infinity()) {
-        for (int i = 0; i < m; ++i) {
-            auto& clause = sat[i];
-            auto& clausePos = pc[i];
-            assert(clause.size() >= clauseLengths[i]);
-            // can be made linear with n-th element, and partition
-            sort(clause.begin(), clause.end(), [&clausePos, &pv,&wv](int var1, int var2) {
-                auto var1Goodness = wv[var1]/distance(clausePos, pv[var1]);
-                auto var2Goodness = wv[var2]/distance(clausePos, pv[var2]);
-                return var1Goodness > var2Goodness;
-            });
-            clause.resize(clauseLengths[i]);
-        }
-    } else {
-        satgirgs::default_random_engine gen(seed);
-        for (int i = 0; i < m; ++i) {
-            auto& clause = sat[i];
-            auto& clausePos = pc[i];
-            assert(clause.size() >= clauseLengths[i]);
-
-            // prepare vars
-            vector<pair<int,double>> vars; // id, selection weight
-            vars.reserve(clause.size());
-            for(auto v : clause) {
-                auto actual = pow((wc[i]*wv[v]/W)/distance(clausePos, pv[v]), alpha);
-                auto girgDid = min(actual*scaled, 1.0);
-                auto goodness = actual/girgDid;
-                // if actual*scaled < 1 then goodness is 1/scaled (i.e. uniform dist)
-                vars.emplace_back(v, goodness);
-            }
-
-            // take some vars
-            vector<int> selection;
-            while(selection.size() < clauseLengths[i]) {
-
-                auto totalGoodness = 0.0;
-                for(auto [_,g] : vars) totalGoodness += g;
-                auto dist = uniform_real_distribution<>(0.0, totalGoodness);
-                auto choice = dist(gen);
-                // find choice, remove from vars and add to selection
-
-                double acc = 0;
-                auto toSelect = vars.end();
-                for(auto it=vars.begin(); it!=vars.end(); ++it) {
-                    acc += it->second;
-                    if(acc >= choice) {
-                        toSelect = it;
-                        break;
-                    }
-                }
-                assert(toSelect != vars.end());
-                selection.push_back(toSelect->first);
-                vars.erase(toSelect);
-            }
-            // clause i is done here
-            clause = selection;
-        }
-    }
-
-    // debug
+    // debug variable distribution
     auto varOccs = vector<pair<int,double>>(n);
-    for (int i = 0; i < n; ++i) varOccs[i] = {0,wv[i]};
+    for (int i = 0; i < n; ++i) varOccs[i] = {0,varWeights[i]};
     for(auto& clause : sat)
         for(int var : clause)
             varOccs[var].first++;
 
     sort(varOccs.begin(), varOccs.end(), greater<>());
-    for(auto [occ, weight] : varOccs)
-        cout << occ << '\t' << weight << endl;
+    for(auto [deg, weight] : varOccs)
+        cout << deg << '\t' << weight << endl;
+    cout << endl;
 
-    saveDot(wc, pc, wv, pv, sat, "graph.dot");
-    system("neato -n -Tpdf graph.dot -o graph.pdf");
+    // print degree distribution
+    auto current = 0;
+    auto occ = 0;
+    auto min_w = accumulate(varWeights.begin(), varWeights.end(), 0.0);
+    auto max_w = 0.0;
+    auto sum_w = 0.0;
+    for(int i = varOccs.size() -1; i>=0; --i) {
+        auto [deg, weight] = varOccs[i];
+        if(deg == current) {
+            occ++;
+            min_w = min(min_w, weight);
+            max_w = max(max_w, weight);
+            sum_w += weight;
+        } else {
+            cout << current << '\t' << occ << '\t' << min_w << '\t' << max_w << '\t' << sum_w / occ << endl;
+            current = deg;
+            occ = 1;
+            sum_w = max_w = min_w = weight;
+        }
+    }
+    cout << current << '\t' << occ << '\t' << min_w << '\t' << max_w << '\t' << sum_w / occ << endl;
+
+    // saveDot(claPos, varPos, sat, "graph.dot");
+    // system("neato -n -Tpdf graph.dot -o graph.pdf");
+
+    // write dimacs
+    ofstream f{"graph.sat"};
+    f << "p cnf " << n << ' ' << m << endl;
+    for(auto& clause : sat) {
+        for(auto v : clause)
+            f << (rand() < RAND_MAX/2 ? v+1 : -(v+1)) << ' ';
+        f << "0\n";
+    }
+
     return 0;
 }
