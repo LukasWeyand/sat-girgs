@@ -26,6 +26,11 @@ SATGIRGS_API std::vector<std::vector<int>> generateCVIG(
         const std::vector<double>& variableWeights, const std::vector<std::vector<double>>& variablePositions,
         double alpha, int seed);
 
+SATGIRGS_API std::vector<std::vector<int>> generateCVIG_for_real(
+        const std::vector<int>& clauseLengths, const std::vector<std::vector<double>>& clausePositions,
+        const std::vector<double>& variableWeights, const std::vector<std::vector<double>>& variablePositions,
+        double alpha, int seed);
+
 SATGIRGS_API void saveDot(
         const std::vector<std::vector<double>> &clausePositions,
         const std::vector<std::vector<double>> &variablePositions,

@@ -73,6 +73,7 @@ std::vector<std::vector<int>> generateCVIG(
 
     auto m = clausePositions.size();
     auto W = accumulate(variableWeights.begin(), variableWeights.end(), 0.0);
+    auto d = clausePositions.front().size();
 
     std::vector<std::vector<int>> sat;
 
@@ -92,8 +93,10 @@ std::vector<std::vector<int>> generateCVIG(
 
         scaled *= 2;
         auto scaling = 2.0; // correct scaling such that all edge probs actually double
-        if(alpha != std::numeric_limits<double>::infinity())
-            scaling = pow(2.0, 1.0/alpha);
+        // this correctly doubles all probs, but do we want this?
+        // for near-threshold it does nothing. we actually want to double expected avg degrees
+        //if(alpha != std::numeric_limits<double>::infinity())
+        //    scaling = pow(2.0, 1.0/alpha);
         for(auto& w : clauseWeights)
             w *= scaling;
     }
@@ -106,8 +109,8 @@ std::vector<std::vector<int>> generateCVIG(
             assert(clause.size() >= clauseLengths[i]);
             // can be made linear with n-th element, and partition
             sort(clause.begin(), clause.end(), [&](int var1, int var2) {
-                auto var1Goodness = variableWeights[var1] / distance(clausePos, variablePositions[var1]);
-                auto var2Goodness = variableWeights[var2] / distance(clausePos, variablePositions[var2]);
+                auto var1Goodness = variableWeights[var1] / pow(distance(clausePos, variablePositions[var1]), d);
+                auto var2Goodness = variableWeights[var2] / pow(distance(clausePos, variablePositions[var2]), d);
                 return var1Goodness > var2Goodness;
             });
             clause.resize(clauseLengths[i]);
@@ -126,10 +129,18 @@ std::vector<std::vector<int>> generateCVIG(
         std::vector<std::pair<int,double>> vars; // id, selection weight
         vars.reserve(clause.size());
         for(auto v : clause) {
-            auto actual = pow( (clauseWeights[i]*variableWeights[v]/W)/
-                    distance(clausePos, variablePositions[v]), alpha);
+            auto actual = pow(
+                    (clauseWeights[i]*variableWeights[v]/W) / pow(distance(clausePos, variablePositions[v]), d),
+                    alpha);
+            assert(actual != 0.0);
             auto girgDid = std::min(actual*scaled, 1.0);
             auto goodness = actual/girgDid;
+            if(goodness == std::numeric_limits<double>::infinity()) {
+                std::cout << "Accuracy insufficient to sample this close to threshold model\n"
+                    << "Use T=0 instead\n";
+                exit(0);
+            }
+
             // if actual*scaled < 1 then goodness is 1/scaled (i.e. uniform dist)
             vars.emplace_back(v, goodness);
         }
@@ -161,6 +172,87 @@ std::vector<std::vector<int>> generateCVIG(
         clause = selection;
     }
     return sat;
+}
+
+std::vector<std::vector<int>> generateCVIG_for_real(
+        const std::vector<int> &clauseLengths, const std::vector<std::vector<double>> &clausePositions,
+        const std::vector<double> &variableWeights, const std::vector<std::vector<double>> &variablePositions,
+        double alpha, int seed) {
+    using namespace std;
+
+    auto n = variableWeights.size();
+    auto m = clauseLengths.size();
+    auto d = clausePositions.front().size();
+    auto W = accumulate(variableWeights.begin(), variableWeights.end(), 0.0);
+
+    auto cvig = std::vector(m, std::vector<int>());
+
+    mt19937 gen(seed);
+    for (int c = 0; c < m; ++c) {
+        auto length = clauseLengths[c];
+        vector<int>& clause = cvig[c];
+
+        // threshold
+        if(alpha > 20.0) {
+            vector<pair<int,double>> dists;
+            for (int v = 0; v < n; ++v) {
+                auto w_term = variableWeights[v] / W;
+                auto d_term = pow(distance(clausePositions[c], variablePositions[v]), d);
+                dists.emplace_back(v, w_term / d_term);
+            }
+            nth_element(dists.begin(), dists.begin()+(length-1), dists.end() , [](auto a, auto b) {
+                return a.second > b.second;
+            });
+            for (int i = 0; i < length; ++i) {
+                clause.push_back(dists[i].first);
+            }
+            continue;
+        }
+
+        // binomial
+        vector<pair<int,double>> choices; // (var, weight)
+        for (int v = 0; v < n; ++v) {
+            auto w_term = variableWeights[v] / W;
+            auto d_term = pow(distance(clausePositions[c], variablePositions[v]), d);
+            auto goodness = pow(w_term/d_term, alpha);
+            choices.emplace_back(v, goodness);
+        }
+
+        // repeat size of clause times
+        for (int rep = 0; rep < length; ++rep) {
+
+            // compute total weight
+            auto total = accumulate(choices.begin(), choices.end(), 0.0, [](double acc, pair<int,double> choice){
+                return acc + choice.second;
+            });
+            if(total == numeric_limits<double>::infinity()) {
+                cout << "Double Overflow ... ABORT" << endl;
+                return cvig;
+            }
+
+            // throw coin
+            auto dist = std::uniform_real_distribution<>(0.0, total);
+            auto choice = dist(gen);
+
+            // find choice
+            auto acc = 0.0;
+            auto toSelect = choices.end();
+            for(auto it=choices.begin(); it!=choices.end(); ++it) {
+                acc += it->second;
+                if(acc >= choice) {
+                    toSelect = it;
+                    break;
+                }
+            }
+
+            // remove from list and add to clause
+            assert(toSelect != choices.end());
+            clause.push_back(toSelect->first);
+            choices.erase(toSelect);
+        }
+    }
+
+    return cvig;
 }
 
 
