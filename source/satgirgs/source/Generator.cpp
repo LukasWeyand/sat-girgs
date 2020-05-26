@@ -186,6 +186,7 @@ std::vector<std::vector<int>> generateCVIG_for_real(
     auto W = accumulate(variableWeights.begin(), variableWeights.end(), 0.0);
 
     auto cvig = std::vector(m, std::vector<int>());
+    auto lookedAt = 0ll;
 
     mt19937 gen(seed);
     for (int c = 0; c < m; ++c) {
@@ -218,6 +219,8 @@ std::vector<std::vector<int>> generateCVIG_for_real(
             choices.emplace_back(v, goodness);
         }
 
+        sort(choices.begin(), choices.end(), [](auto a, auto b) {return a.second > b.second; });
+        auto max_revealed = 0;
         // repeat size of clause times
         for (int rep = 0; rep < length; ++rep) {
 
@@ -244,13 +247,18 @@ std::vector<std::vector<int>> generateCVIG_for_real(
                     break;
                 }
             }
+            max_revealed = max<int>(max_revealed, 1 + rep + distance(choices.begin(), toSelect));
 
             // remove from list and add to clause
             assert(toSelect != choices.end());
             clause.push_back(toSelect->first);
             choices.erase(toSelect);
         }
+        lookedAt += max_revealed;
+        auto a = 0;
     }
+    auto avg_reveal = lookedAt * 1.0 / m;
+    cout << "avg reveal\t" << avg_reveal << endl;
 
     return cvig;
 }

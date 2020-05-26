@@ -163,7 +163,7 @@ int main(int argc, char* argv[]) {
     cout.precision(4);
 
     // params
-    auto n = 1000;
+    auto n = 100000;
     const auto d = 2;
     auto k = 3;
     auto T = atof(argv[1]);
