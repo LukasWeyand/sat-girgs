@@ -35,10 +35,11 @@ std::vector<std::vector<int>> generate(
     return clauses;
 }
 
-std::vector<std::vector<int>> generate(int n, int m, int deg, int seed, double T) {
+std::vector<std::vector<int>> generate(int n, int m, int deg, int seed, double T, bool univar, bool unicls) {
     mt19937 gen(seed);
     uniform_int_distribution dist(0,numeric_limits<int>::max());
-    int wseed = dist(gen);
+    int wseed1 = dist(gen);
+    int wseed2 = dist(gen);
     int pseed1 = dist(gen);
     int pseed2 = dist(gen);
     int sseed = dist(gen);
@@ -46,9 +47,11 @@ std::vector<std::vector<int>> generate(int n, int m, int deg, int seed, double T
     double ple = 2.8;
     int d = 2;
     double alpha = T>0 ? 1.0/T : numeric_limits<double>::infinity();
-    auto varW = generateWeights(n,ple,wseed);
-    auto clsW = vector<double>(m, 1.0);
+
+    auto varW = univar ? vector(n,1.0) : generateWeights(n,ple,wseed1);
     auto varP = generatePositions(n,d,pseed1);
+
+    auto clsW = unicls ? vector(m,1.0) : generateWeights(m,ple,wseed2);
     auto clsP = generatePositions(m,d,pseed2);
 
     auto sum_deg = [&](double scaling) {
@@ -83,15 +86,19 @@ int main(int argc, char* argv[]) {
     int deg = 5;
     int seed = 12;
     double T = 0;
-    if(argc==1) cerr << "USAGE: n m deg seed T" << endl, exit(0);
+    bool univar = false;
+    bool unicls = true;
+    if(argc==1) cerr << "USAGE: n m deg seed T univar unicls" << endl, exit(0);
 
     if(argc>1) n = stoi(argv[1]);
     if(argc>2) m = stoi(argv[2]);
     if(argc>3) deg = stoi(argv[3]);
     if(argc>4) seed = stoi(argv[4]);
     if(argc>5) T = stod(argv[5]);
+    if(argc>6) univar = argv[6] != "0"s;
+    if(argc>7) unicls = argv[7] != "0"s;
 
-    auto graph = generate(n, m, deg, seed, T);
+    auto graph = generate(n, m, deg, seed, T, univar, unicls);
 
     int zero_cnt = 0;
     for(auto& cls : graph) zero_cnt += empty(cls);
